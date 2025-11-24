@@ -3,7 +3,11 @@ Escriba el codigo que ejecute la accion solicitada.
 """
 
 # pylint: disable=import-outside-toplevel
-
+import zipfile
+import os
+import pandas as pd
+import glob
+import fileinput
 
 def clean_campaign_data():
     """
@@ -46,12 +50,86 @@ def clean_campaign_data():
     - const_price_idx
     - eurobor_three_months
 
-
-
     """
 
-    return
+    input_path = "files/input/"
+    output_path = "files/output/"
+    dataframe = read_concat(input_path)
+    
+    # Transformación y guardado de client.csv
+    client_df = dataframe[['client_id', 'age', 'job', 'marital', 'education', 'credit_default', 'mortgage']].copy()
+
+    client_df['job'] = client_df['job'].str.replace(r"[.]", "", regex=True).str.replace(r"[-]", "_", regex=True)
+    client_df['education'] = client_df['education'].str.replace(r"[.]", "_", regex=True).replace("unknown", pd.NA)
+    client_df['credit_default'] = client_df['credit_default'].apply(lambda x: 1 if x == "yes" else 0)
+    client_df['mortgage'] = client_df['mortgage'].apply(lambda x: 1 if x == "yes" else 0)
+
+    save_csv(client_df, output_path, "client.csv")
+
+    # Transformación y guardado de campaign.csv
+    campaign_df = dataframe[['client_id', 'number_contacts', 'contact_duration', 'previous_campaign_contacts',
+                             'previous_outcome', 'campaign_outcome', 'day', 'month']].copy()
+    campaign_df['previous_outcome'] = campaign_df['previous_outcome'].apply(lambda x: 1 if x == "success" else 0)
+    campaign_df['campaign_outcome'] = campaign_df['campaign_outcome'].apply(lambda x: 1 if x == "yes" else 0)
+    campaign_df['last_contact_date'] = pd.to_datetime(
+        campaign_df['day'].astype(str) + '-' + campaign_df['month'] + '-2022', format='%d-%b-%Y'
+    ).dt.strftime('%Y-%m-%d')  # Formato YYYY-MM-DD
+    campaign_df = campaign_df.drop(columns=['day', 'month'])
+    save_csv(campaign_df, output_path, "campaign.csv")
+
+
+    # Transformación y guardado de economics.csv
+    economics_df = dataframe[['client_id', 'cons_price_idx', 'euribor_three_months']].copy()
+    save_csv(economics_df, output_path, "economics.csv")
+
+    return print('La operación fue un éxito.')
+
+#leer archivos zip
+def read_concat(input_path):
+    """
+    Lee archivos CSV dentro de archivos ZIP en un directorio especificado y
+    devuelve un DataFrame concatenado con información del origen de los datos.
+    """
+
+    all_data = []  # Lista para almacenar los DataFrames
+
+    # Iterar sobre los archivos en el directorio
+    for file_name in os.listdir(input_path):
+        if file_name.endswith('.zip'):
+            zip_path = os.path.join(input_path, file_name)
+
+            with zipfile.ZipFile(zip_path, 'r') as zip_file:
+                csv_files = [name for name in zip_file.namelist() if name.endswith('.csv')]
+
+                if not csv_files:
+                    continue
+
+                for csv_file in csv_files:
+                    with zip_file.open(csv_file) as file:
+                        df = pd.read_csv(file)
+
+                        # Añadir el DataFrame a la lista
+                        all_data.append(df)
+    dataframe_df = pd.concat(all_data, ignore_index=True)
+
+    return dataframe_df
+
+def save_csv(dataframe, output_path, filename):
+    # Crear el directorio de salida si no existe
+    if not os.path.exists(output_path):
+        os.makedirs(output_path)
+
+    # Crear la ruta completa del archivo
+    output_file = os.path.join(output_path, filename)
+
+    # Guardar el DataFrame en el archivo CSV
+    try:
+        dataframe.to_csv(output_file, index=False)
+        print(f"El archivo se ha guardado exitosamente en: {output_file}")
+    except Exception as e:
+        print(f"Error al guardar el archivo: {e}")
 
 
 if __name__ == "__main__":
     clean_campaign_data()
+
